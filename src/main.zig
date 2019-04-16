@@ -49,29 +49,45 @@ pub fn Parser(comptime T: type) type {
 
         pub fn parse_line(self: *Self, line: []u8) !void {
             warn("\n");
+            const info = comptime @typeInfo(T);
 
+            comptime var fieldIdx = 0;
+            comptime var start = 0;
+            comptime var end = 0;
+
+            for (line) |char| {
+                if (char == ',') {
+                    warn("'{}' to '{}' = '{}'\n", @intCast(isize, start), @intCast(isize, end), line[start..end]);
+
+                    var row = try self.parse_cell(info.Struct.fields[fieldIdx], line[start..end]);
+                    try self.rows.append(row.*);
+
+                    start = end + 2;
+                } else {
+                    end += 1;
+                    warn("'{}' at {}\n", char, @intCast(isize, end));
+                }
+            }
+        }
+
+        fn parse_cell(self: *Self, comptime field: builtin.TypeInfo.StructField, cell: []u8) !*T {
             var row = try self.allocator.create(T);
 
-            const info = comptime @typeInfo(T);
-            inline for (info.Struct.fields) |field| {
-                warn(field.name);
-                warn("\n");
-                switch (@typeId(field.field_type)) {
-                    builtin.TypeId.Int => {
-                        var v = try std.fmt.parseInt(field.field_type, line[0..line.len], 10);
-                        @field(row.*, field.name) = v;
-                    },
-                    builtin.TypeId.Float => {
-                        var v = try std.fmt.parseFloat(field.field_type, line[0..line.len]);
-                        @field(row.*, field.name) = v;
-                    },
-                    else => {
-                        std.debug.panic("Type '{}' cannot be used for column of a CSV file", @typeId(field.field_type));
-                    }
+            switch (@typeId(field.field_type)) {
+                builtin.TypeId.Int => {
+                    var v = try std.fmt.parseInt(field.field_type, cell, 10);
+                    @field(row.*, field.name) = v;
+                },
+                builtin.TypeId.Float => {
+                    var v = try std.fmt.parseFloat(field.field_type, cell);
+                    @field(row.*, field.name) = v;
+                },
+                else => {
+                    std.debug.panic("Type '{}' cannot be used for column of a CSV file", @typeId(field.field_type));
                 }
             }
 
-            try self.rows.append(row.*);
+            return row;
         }
    };
 }
@@ -80,12 +96,13 @@ test "basic parse_line test int" {
     var direct_allocator = std.heap.DirectAllocator.init();
     defer direct_allocator.deinit();
 
-    var file = 
-        \\11
+    var file =
+        \\11,12
     ;
 
     const TestRow = struct {
         pub id: isize,
+        pub val: i32,
     };
 
     var parser = Parser(TestRow).init(&direct_allocator.allocator);
@@ -94,13 +111,14 @@ test "basic parse_line test int" {
 
     assert(parser.rows.count() == 1);
     assert(parser.rows.toSlice()[0].id == 11);
+    assert(parser.rows.toSlice()[0].val == 12);
 }
 
 test "basic parse_line test float" {
     var direct_allocator = std.heap.DirectAllocator.init();
     defer direct_allocator.deinit();
 
-    var file = 
+    var file =
         \\11.0
     ;
 
@@ -121,7 +139,7 @@ test "basic parse_line test float" {
 //     var direct_allocator = std.heap.DirectAllocator.init();
 //     defer direct_allocator.deinit();
 
-//     var file = 
+//     var file =
 //         \\11.0
 //     ;
 
