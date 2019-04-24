@@ -8,6 +8,7 @@ const warn = std.debug.warn;
 // TODO parse csv []u8 into structs
 // TODO help fn given filestring
 pub fn Parser(comptime T: type) type {
+    const info = @typeInfo(T);
     // if (@typeOf(T) != builtin.TypeInfo.Struct) {
     //     @panic("TODO Cannot create a parser for a non struct");
     // }
@@ -49,9 +50,11 @@ pub fn Parser(comptime T: type) type {
 
         pub fn parse_line(self: *Self, line: []u8) !void {
             warn("\n");
-            const info = comptime @typeInfo(T);
 
             comptime var fieldIdx = 0;
+            // of course cannot be comptime cause this needs to process the runtime value of line
+            // so it'l lbe parsing junk
+            // also parseInt/float should probably fail on empty slice
             comptime var start = 0;
             comptime var end = 0;
 
@@ -108,6 +111,8 @@ test "basic parse_line test int" {
     var parser = Parser(TestRow).init(&direct_allocator.allocator);
 
     try parser.parse_line(file[0..]);
+
+    warn("Parsed as: {}\n", parser.rows.at(0));
 
     assert(parser.rows.count() == 1);
     assert(parser.rows.toSlice()[0].id == 11);
