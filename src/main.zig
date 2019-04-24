@@ -8,7 +8,8 @@ const warn = std.debug.warn;
 // TODO parse csv []u8 into structs
 // TODO help fn given filestring
 pub fn Parser(comptime T: type) type {
-    const info = @typeInfo(T);
+    comptime const info = @typeInfo(T);
+    comptime const field_len = info.Struct.fields.len;
     // if (@typeOf(T) != builtin.TypeInfo.Struct) {
     //     @panic("TODO Cannot create a parser for a non struct");
     // }
@@ -26,67 +27,78 @@ pub fn Parser(comptime T: type) type {
             };
         }
 
-        pub fn parse(self: *Self, contents: []u8) !void {
-            var start: usize = 0;
-            for (contents) |byte, i| {
-                if (byte == '\r') {
-                    if (contents.len <= i + 1) {
-                        break; // EOF
-                    }
-                    if (contents[i+1] == '\n') {
-                        continue;
-                    }
-                }
+        // pub fn parse(self: *Self, contents: []u8) !void {
+        //     var start: usize = 0;
+        //     for (contents) |byte, i| {
+        //         if (byte == '\r') {
+        //             if (contents.len <= i + 1) {
+        //                 break; // EOF
+        //             }
+        //             if (contents[i+1] == '\n') {
+        //                 continue;
+        //             }
+        //         }
 
-                if (byte == '\n') {
-                    try self.parse_line(contents[start..i-1]);
-                }
-            }
+        //         if (byte == '\n') {
+        //             try self.parse_line(contents[start..i-1]);
+        //         }
+        //     }
 
-            if (contents[contents.len-1] != '\n') {
-                try self.parse_line(contents[start..contents.len-1]);
-            }
-        }
+        //     if (contents[contents.len-1] != '\n') {
+        //         try self.parse_line(contents[start..contents.len-1]);
+        //     }
+        // }
 
         pub fn parse_line(self: *Self, line: []u8) !void {
             warn("\n");
 
-            comptime var fieldIdx = 0;
-            // of course cannot be comptime cause this needs to process the runtime value of line
-            // so it'l lbe parsing junk
-            // also parseInt/float should probably fail on empty slice
-            comptime var start = 0;
-            comptime var end = 0;
+            var cells: [field_len][]u8 = undefined;
+            var cell = 0;
+
+            var start = 0;
+            var end = 0;
 
             for (line) |char| {
-                if (char == ',') {
-                    warn("'{}' to '{}' = '{}'\n", @intCast(isize, start), @intCast(isize, end), line[start..end]);
-
-                    var row = try self.parse_cell(info.Struct.fields[fieldIdx], line[start..end]);
-                    try self.rows.append(row.*);
-
-                    start = end + 2;
-                } else {
-                    end += 1;
-                    warn("'{}' at {}\n", char, @intCast(isize, end));
+                if (cell >= field_len) {
+                    // TODO error
+                    break;
                 }
+
+                if (char == ',') {
+                    cells[cell] = line[start..end];
+                    cell += 1;
+                    start = end + 1;
+                }
+
+                end += 1;
             }
+
+            var row = try self.parse_cells(cells);
+            try self.rows.append(row.*);
         }
 
-        fn parse_cell(self: *Self, comptime field: builtin.TypeInfo.StructField, cell: []u8) !*T {
+        fn parse_cells(self: *Self, cells: [field_len][]u8) !*T {
             var row = try self.allocator.create(T);
 
-            switch (@typeId(field.field_type)) {
-                builtin.TypeId.Int => {
-                    var v = try std.fmt.parseInt(field.field_type, cell, 10);
-                    @field(row.*, field.name) = v;
-                },
-                builtin.TypeId.Float => {
-                    var v = try std.fmt.parseFloat(field.field_type, cell);
-                    @field(row.*, field.name) = v;
-                },
-                else => {
-                    std.debug.panic("Type '{}' cannot be used for column of a CSV file", @typeId(field.field_type));
+            inline for (cells) |cell, c| {
+                inline for (info.Struct.fields) |field, f| {
+                    if (c != f) {
+                        continue;
+                    }
+
+                    switch (@typeId(field.field_type)) {
+                        builtin.TypeId.Int => {
+                            var v = try std.fmt.parseInt(field.field_type, cells[i], 10);
+                            @field(row.*, field.name) = v;
+                        },
+                        builtin.TypeId.Float => {
+                            var v = try std.fmt.parseFloat(field.field_type, cells[i]);
+                            @field(row.*, field.name) = v;
+                        },
+                        else => {
+                            std.debug.panic("Type '{}' cannot be used for column of a CSV file", @typeId(field.field_type));
+                        }
+                    }
                 }
             }
 
